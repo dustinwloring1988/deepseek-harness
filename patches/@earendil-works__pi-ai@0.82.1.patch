@@ -1,0 +1,27 @@
+diff --git a/dist/providers/opencode.models.js b/dist/providers/opencode.models.js
+index 7e7973abae8deec47920606be4ce3e055fb71b30..2825fad66b5eb69ee85c3dc5686b73542a00eae4 100644
+--- a/dist/providers/opencode.models.js
++++ b/dist/providers/opencode.models.js
+@@ -3,4 +3,22 @@
+ import values from "./data/opencode.json" with { type: "json" };
+ import { flattenModelCatalog } from "../model-catalog.js";
+ export const OPENCODE_MODELS = flattenModelCatalog("opencode", values);
++// Local addition pending upstream: opencode Zen does not list ox-alpha-free in
++// /models yet. Capacities, modalities, and efforts follow the model's published
++// OpenRouter entry (reasoning mandatory, so off stays unsupported); protocol,
++// compat, and endpoint follow the route's other -free entries.
++OPENCODE_MODELS["ox-alpha-free"] = {
++  id: "ox-alpha-free",
++  name: "Ox Alpha Free",
++  api: "openai-completions",
++  baseUrl: "https://opencode.ai/zen/v1",
++  provider: "opencode",
++  reasoning: true,
++  input: ["text"],
++  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
++  contextWindow: 1048576,
++  maxTokens: 131072,
++  compat: { supportsStore: false, supportsDeveloperRole: false, maxTokensField: "max_tokens" },
++  thinkingLevelMap: { off: null, minimal: null, low: "low", medium: null, high: "high", xhigh: null, max: "max" },
++};
+ //# sourceMappingURL=opencode.models.js.map
