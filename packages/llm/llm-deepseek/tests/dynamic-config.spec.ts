@@ -124,12 +124,12 @@ describe('request-level dynamic configuration', () => {
     await writeFile(join(dir, '.credentials.yaml'), 'version: 1\nrefs:\n  DEEPSEEK_API_KEY: first-key\n', { mode: 0o600 })
     const serverA = await mockServer([{ kind: 'sse', events: textEvents }])
     const serverB = await mockServer([{ kind: 'sse', events: textEvents }])
-    const { ctx } = await boot(dir, { baseURL: serverA.url })
+    const { ctx } = await boot(dir, { providers: { 'deepseek-official': { baseURL: serverA.url } } })
 
     await prompt(ctx)
     expect(serverA.headers[0]?.authorization).toBe('Bearer first-key')
 
-    await ctx.settings.update(NS, { baseURL: serverB.url })
+    await ctx.settings.update(NS, { providers: { 'deepseek-official': { baseURL: serverB.url } } })
     await ctx.credentials.set(KEY_REF, 'second-key')
 
     await prompt(ctx)
@@ -142,7 +142,7 @@ describe('request-level dynamic configuration', () => {
     vi.stubEnv('DEEPSEEK_API_KEY', '')
     const dir = await home()
     const server = await mockServer([{ kind: 'sse', events: textEvents }])
-    const { ctx } = await boot(dir, { baseURL: server.url })
+    const { ctx } = await boot(dir, { providers: { 'deepseek-official': { baseURL: server.url } } })
 
     const keyless = await prompt(ctx)
     expect(keyless.finish).toMatchObject({ kind: 'error', failure: { code: 'MISSING_CREDENTIAL' } })
@@ -156,7 +156,7 @@ describe('request-level dynamic configuration', () => {
   it('rejects a stored credential no header can carry, never echoing it in the failure', async () => {
     vi.stubEnv('DEEPSEEK_API_KEY', '')
     const dir = await home()
-    const { ctx } = await boot(dir, { baseURL: 'http://127.0.0.1:1' })
+    const { ctx } = await boot(dir, { providers: { 'deepseek-official': { baseURL: 'http://127.0.0.1:1' } } })
     const secret = 'sk-\u{1F600}supersecret'
 
     // The real credentials seam (the path the web Models page writes through),
@@ -174,11 +174,13 @@ describe('request-level dynamic configuration', () => {
 
   it('advertises a live settings catalog without re-registration', async () => {
     const dir = await home()
-    const { ctx } = await boot(dir, { baseURL: 'http://127.0.0.1:1' })
+    const { ctx } = await boot(dir, { providers: { 'deepseek-official': { baseURL: 'http://127.0.0.1:1' } } })
 
     await expect(ctx.llm.listModels('deepseek-official')).resolves.toHaveLength(3)
     await ctx.settings.update(NS, {
-      models: [{ id: 'settings-model', name: 'From Settings', inputModalities: ['text', 'image'] }],
+      providers: {
+        'deepseek-official': { models: [{ id: 'settings-model', name: 'From Settings', inputModalities: ['text', 'image'] }] },
+      },
     })
     await expect(ctx.llm.listModels('deepseek-official')).resolves.toEqual([
       { provider: 'deepseek-official', id: 'settings-model', name: 'From Settings', inputModalities: ['text', 'image'] },
@@ -192,7 +194,7 @@ describe('request-level dynamic configuration', () => {
       { kind: 'sse', events: textEvents },
       { kind: 'sse', events: textEvents },
     ])
-    const { ctx } = await boot(dir, { baseURL: server.url })
+    const { ctx } = await boot(dir, { providers: { 'deepseek-official': { baseURL: server.url } } })
     const messages = [createUserMessage({
       content: [
         { type: 'image', attachment: IMAGE_REF },
@@ -202,7 +204,7 @@ describe('request-level dynamic configuration', () => {
     })]
 
     await assemble(ctx, { model: 'deepseek-v4-flash-vision-exp', messages })
-    await ctx.settings.update(NS, { maxRequestFilesBytes: 4, imageOffloadByteQuantum: 2 })
+    await ctx.settings.update(NS, { providers: { 'deepseek-official': { maxRequestFilesBytes: 4, imageOffloadByteQuantum: 2 } } })
     await assemble(ctx, { model: 'deepseek-v4-flash-vision-exp', messages })
 
     const first = (server.requests[0] as { messages: Array<{ content: unknown }> }).messages[0]?.content
@@ -214,7 +216,7 @@ describe('request-level dynamic configuration', () => {
 
   it('re-registers the route in place when the captured retry policy changes, without an empty-registry window', async () => {
     const dir = await home()
-    const { ctx } = await boot(dir, { baseURL: 'http://127.0.0.1:1' })
+    const { ctx } = await boot(dir, { providers: { 'deepseek-official': { baseURL: 'http://127.0.0.1:1' } } })
 
     // Observing the topology event, not just the end state: disposing and
     // re-registering also lands on the right final registry, but publishes an
@@ -225,7 +227,11 @@ describe('request-level dynamic configuration', () => {
     })
 
     await ctx.settings.update(NS, {
-      retryPolicy: { mode: 'always', backoff: { initialDelayMs: 25, maxDelayMs: 100, jitterRatio: 0.2 } },
+      providers: {
+        'deepseek-official': {
+          retryPolicy: { mode: 'always', backoff: { initialDelayMs: 25, maxDelayMs: 100, jitterRatio: 0.2 } },
+        },
+      },
     })
     expect(ctx.llm.providerRetryPolicy('deepseek-official')).toEqual({
       mode: 'always',
@@ -239,13 +245,13 @@ describe('request-level dynamic configuration', () => {
 
   it('keeps the last good options when a settings snapshot fails beyond-schema validation', async () => {
     const dir = await home()
-    const { ctx } = await boot(dir, { baseURL: 'http://127.0.0.1:1' })
+    const { ctx } = await boot(dir, { providers: { 'deepseek-official': { baseURL: 'http://127.0.0.1:1' } } })
 
     // Schema-valid but resolver-invalid: duplicate catalog ids pass the array
     // schema and fail the explicit resolve step.
-    await ctx.settings.update(NS, { models: [{ id: 'dup' }, { id: 'dup' }] })
+    await ctx.settings.update(NS, { providers: { 'deepseek-official': { models: [{ id: 'dup' }, { id: 'dup' }] } } })
     await expect(ctx.llm.listModels('deepseek-official')).resolves.toHaveLength(3)
-    await ctx.settings.update(NS, { models: [{ id: 'recovered' }] })
+    await ctx.settings.update(NS, { providers: { 'deepseek-official': { models: [{ id: 'recovered' }] } } })
     await expect(ctx.llm.listModels('deepseek-official')).resolves.toEqual([
       { provider: 'deepseek-official', id: 'recovered', name: 'recovered', inputModalities: ['text'] },
     ])
@@ -256,13 +262,17 @@ describe('request-level dynamic configuration', () => {
     const good = await mockServer([{ kind: 'sse', events: textEvents }])
     const rejected = await mockServer([{ kind: 'sse', events: textEvents }])
     vi.stubEnv('DEEPSEEK_API_KEY', 'good-key')
-    const { ctx } = await boot(dir, { baseURL: good.url })
+    const { ctx } = await boot(dir, { providers: { 'deepseek-official': { baseURL: good.url } } })
 
     // One snapshot moves the endpoint and fails the resolve step beyond the
     // schema (duplicate catalog ids).
     await ctx.settings.update(NS, {
-      baseURL: rejected.url,
-      models: [{ id: 'dup' }, { id: 'dup' }],
+      providers: {
+        'deepseek-official': {
+          baseURL: rejected.url,
+          models: [{ id: 'dup' }, { id: 'dup' }],
+        },
+      },
     })
 
     await prompt(ctx)
@@ -279,9 +289,9 @@ describe('request-level dynamic configuration', () => {
     await writeFile(join(dir, '.credentials.yaml'), 'version: 1\nrefs:\n  DEEPSEEK_API_KEY: steady-key\n', { mode: 0o600 })
     const serverA = await mockServer([{ kind: 'sse', events: textEvents }])
     const serverB = await mockServer([{ kind: 'sse', events: textEvents }])
-    const { ctx, settingsFiber } = await boot(dir, { baseURL: serverA.url })
+    const { ctx, settingsFiber } = await boot(dir, { providers: { 'deepseek-official': { baseURL: serverA.url } } })
 
-    await ctx.settings.update(NS, { baseURL: serverB.url })
+    await ctx.settings.update(NS, { providers: { 'deepseek-official': { baseURL: serverB.url } } })
     await prompt(ctx)
     expect(serverB.requests).toHaveLength(1)
 
@@ -289,5 +299,38 @@ describe('request-level dynamic configuration', () => {
     await prompt(ctx)
     expect(serverA.requests).toHaveLength(1)
     expect(serverA.headers[0]?.authorization).toBe('Bearer steady-key')
+  })
+
+  it('stays dormant with no profile and no ambient key, then registers and withdraws with the stored profile', async () => {
+    vi.stubEnv('DEEPSEEK_API_KEY', '')
+    const dir = await home()
+    const server = await mockServer([{ kind: 'sse', events: textEvents }])
+    const { ctx } = await boot(dir, {})
+    expect(ctx.llm.listProviders()).toEqual([])
+
+    // Adding the profile through the settings seam — the write the web Models
+    // page makes — registers the route without a restart.
+    await ctx.settings.update(NS, { providers: { 'deepseek-official': { baseURL: server.url } } })
+    await expect(ctx.llm.listModels('deepseek-official')).resolves.toHaveLength(3)
+    await ctx.credentials.set(KEY_REF, 'sk-added-by-ui')
+    await prompt(ctx)
+    expect(server.headers[0]?.authorization).toBe('Bearer sk-added-by-ui')
+
+    // Deleting the profile withdraws the route again; the stored credential
+    // document is not touched by the withdrawal.
+    await ctx.settings.replace(NS, {})
+    expect(ctx.llm.listProviders()).toEqual([])
+    expect(await ctx.credentials.resolve(KEY_REF)).toEqual({ value: 'sk-added-by-ui', source: 'file' })
+  })
+
+  it('registers on the launch-environment credential alone while nothing is stored', async () => {
+    vi.stubEnv('DEEPSEEK_API_KEY', 'ambient-key')
+    const dir = await home()
+    const server = await mockServer([{ kind: 'sse', events: textEvents }])
+    vi.stubEnv('DEEPSEEK_BASE_URL', server.url)
+    const { ctx } = await boot(dir, {})
+
+    await prompt(ctx)
+    expect(server.headers[0]?.authorization).toBe('Bearer ambient-key')
   })
 })

@@ -915,13 +915,31 @@ Requires: `llm`
 ```ts config-catalog
 /**
  * Plugin config, validated by the same-named schemastery schema and doubling
- * as the `llm-deepseek` settings-section shape. Every field is optional in
- * yml: a missing API key resolves through {@link Config.apiKeyEnv} at each
- * request (a request without any key fails with `MISSING_CREDENTIAL`, not at
- * plugin load), omitted thinking mode uses the provider default, and omitted
- * reasoning effort resolves to `high`.
+ * as the `llm-deepseek` settings-section shape. Profiles are a dict keyed by
+ * provider route, so the composition base and a user-settings layer merge per
+ * route and the route set is structural: an empty (or omitted) dict is the
+ * dormant posture, and a stored profile can be deleted again.
  */
 export interface Config {
+  /**
+   * Provider profiles keyed by route. This adapter serves exactly the
+   * `deepseek-official` key; any other key is refused where the section
+   * resolves. An empty (or omitted) dict is the dormant settings-driven
+   * posture.
+   */
+  providers?: Record<string, DeepSeekProfileConfig>
+}
+
+/**
+ * One deployment's DeepSeek connection and request policy — the shape of the
+ * settings section's {@link Config.provider} profile. Every field is optional
+ * in yml: a missing API key resolves through
+ * {@link DeepSeekProfileConfig.apiKeyEnv} at each request (a request without
+ * any key fails with `MISSING_CREDENTIAL`, not at plugin load), omitted
+ * thinking mode uses the provider default, and omitted reasoning effort
+ * resolves to `high`.
+ */
+export interface DeepSeekProfileConfig {
   /** Credential reference (environment-variable name) resolved per request; defaults to `DEEPSEEK_API_KEY`. */
   apiKeyEnv?: string
   /** Endpoint base; falls back to $DEEPSEEK_BASE_URL from a trusted environment layer, then the public API. */
@@ -987,7 +1005,7 @@ export interface DeepSeekCatalogModel {
 
 Depends on: [`ModelModality`](../packages/llm/llm/src/index.ts) · [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts)
 
-Source: [`packages/llm/llm-deepseek/src/index.ts:106`](../packages/llm/llm-deepseek/src/index.ts)
+Source: [`packages/llm/llm-deepseek/src/index.ts:169`](../packages/llm/llm-deepseek/src/index.ts)
 
 <a id="deepseek-aidsh-llm-pi-ai"></a>
 
@@ -1010,7 +1028,10 @@ export interface Config {
 export interface PiAiProviderProfile {
   /** Credential reference (environment-variable name) resolved per request through `ctx.credentials`. */
   apiKeyEnv?: string
-  /** Name shown by configuration surfaces; defaults to the route key. */
+  /**
+   * Name shown by configuration surfaces; defaults to a shipped route's own
+   * name, then the route key.
+   */
   displayName?: string
   /**
    * Wire protocol every model on this route speaks. Omission keeps each
@@ -1241,7 +1262,7 @@ export type PiAiThinkingFormat = NonNullable<OpenAICompletionsCompat['thinkingFo
 
 Depends on: `Api` (`@earendil-works/pi-ai`) · `CacheRetention` (`@earendil-works/pi-ai`) · `Model` (`@earendil-works/pi-ai`) · `ModelThinkingLevel` (`@earendil-works/pi-ai`) · `OpenAICompletionsCompat` (`@earendil-works/pi-ai`) · [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts) · `ThinkingBudgets` (`@earendil-works/pi-ai`) · `Transport` (`@earendil-works/pi-ai`)
 
-Source: [`packages/llm/llm-pi-ai/src/config.ts:213`](../packages/llm/llm-pi-ai/src/config.ts)
+Source: [`packages/llm/llm-pi-ai/src/config.ts:217`](../packages/llm/llm-pi-ai/src/config.ts)
 
 <a id="deepseek-aidsh-llm-replay"></a>
 

@@ -184,7 +184,6 @@
 | serving interface | 对外服务接口 | | | |
 | session | 会话 | | | |
 | session event | 会话事件 | | | |
-| setup card | 设置卡片 | | | 首次运行时代替行卡直接展开的配置卡 |
 | sidecar file | 伴随文件 | | | 指与文档同目录的普通伴随文件 |
 | sidecar record | 伴随记录 | | 旁挂记录 | 指与文档同目录的伴随记录文件 |
 | smoke test | 冒烟测试 | | | |

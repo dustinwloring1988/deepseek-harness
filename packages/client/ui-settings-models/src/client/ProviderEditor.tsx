@@ -3,9 +3,9 @@
  * field is a single write-only **API key** input (the page never asks for an
  * environment-variable name — a typed key stores through `credentials.set`
  * under the profile's reference, deriving `<ROUTE>_API_KEY` when the profile
- * has none. The pi-ai profile records that derivation as `apiKeyEnv` only when
- * a key is entered; a blank key materializes a reference-free profile for
- * provider-native authentication);
+ * has none; the profile records that derivation as `apiKeyEnv` only when a
+ * key is entered, so a blank key keeps whatever native path the provider
+ * resolves without one);
  * the collapsed 自定义设置 area carries the per-family extras (`baseURL` for
  * both families, DeepSeek's id/name/context-window model catalog, and the
  * display name and wire protocol of a pi-ai route the adapter does not ship —
@@ -270,9 +270,11 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
    */
   const applyOnce = async (): Promise<string | undefined> => {
     const ns = namespace.ns
-    // A pi-ai profile names the conventional reference only when this page is
-    // about to store a key. Otherwise the provider keeps its native auth path.
-    const next = layout === 'pi-ai' && stringAt(draft, 'apiKeyEnv') === undefined
+    // A profile names the conventional reference only when this page is about
+    // to store a key. Otherwise the provider keeps its native auth path (for
+    // DeepSeek: the profile's schema default reference, resolvable from the
+    // launch environment).
+    const next = stringAt(draft, 'apiKeyEnv') === undefined
       && stringAt(fallback, 'apiKeyEnv') === undefined && keyValue.length > 0
       ? schema.setPath(draft, ['apiKeyEnv'], keyRef)
       : draft
@@ -292,8 +294,7 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
       const sectionError = schema.validate(node, next)
       if (sectionError !== undefined) return sectionError
     }
-    const materializesNativeProfile = layout === 'pi-ai'
-      && fallback === undefined
+    const materializesNativeProfile = fallback === undefined
       && committedOriginal === undefined
       && Object.keys(next).length === 0
     const ops: SettingsPathOpView[] = props.credentialOnly === true
@@ -367,8 +368,6 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
    */
   const curatedFields = (family: 'deepseek' | 'pi-ai'): ReactNode => {
     // What a hand-declared route names for itself and nothing else can supply.
-    // A whole-section `llm-deepseek` profile is a composition fact with no
-    // per-route identity for its schema to carry, hence the family test.
     const ownsIdentity = family === 'pi-ai' && props.declared === true
     // A declared route nothing stores yet is being adopted: its declaration
     // fields are the whole point of the card, so they start unfolded instead

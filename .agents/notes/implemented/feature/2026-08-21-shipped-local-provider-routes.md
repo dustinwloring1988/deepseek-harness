@@ -29,7 +29,7 @@ No credential ships with the route. A local Ollama authenticates nothing, and th
 
 ## Consequences
 
-The provider picker gains one dormant option that costs nothing while unused: no profile means no registered route, `providerUsable()` stays false, and the first-run postures other snapshots pin are unchanged. Adopting the option is now a short path — pick it, fetch the model list from the prefilled endpoint, adopt rows, apply — and saving is validated by the section schema like any other hand-declared route. The display-name default resolves profile → shipped label → route key, a three-step order any future shipped route inherits for free.
+The provider picker gains one dormant option that costs nothing while unused: no profile means no registered route, and the option sits in the add card's select until a user adopts it. Adopting the option is now a short path — pick it, fetch the model list from the prefilled endpoint, adopt rows, apply — and saving is validated by the section schema like any other hand-declared route. The display-name default resolves profile → shipped label → route key, a three-step order any future shipped route inherits for free.
 
 One vocabulary cost is accepted: `declared` now answers "pi-ai ships nothing under this key" for a route the *adapter* does offer, so the row shows the custom tag after adoption. That is accurate — the profile really does carry everything about the route — and the alternative would be a third flag for a distinction no consumer asked for.
 

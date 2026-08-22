@@ -1,0 +1,7 @@
+- dialog "删除 DeepSeek (deepseek-official)？":
+  - heading "删除 DeepSeek (deepseek-official)？" [level=2]
+  - button "关闭":
+    - img
+  - paragraph: 删除 DeepSeek (deepseek-official) 会移除其配置和存储的 API 密钥。
+  - button "取消"
+  - button "删除 DeepSeek (deepseek-official)"

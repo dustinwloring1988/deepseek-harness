@@ -18,7 +18,7 @@ import type {
 } from '@deepseek-ai/dsh-attachment'
 import { LocalCredentialProvider } from '@deepseek-ai/dsh-credentials-local'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
-import type { Config } from '@deepseek-ai/dsh-llm-deepseek'
+import type { DeepSeekProfileConfig } from '@deepseek-ai/dsh-llm-deepseek'
 import { assemble, type AssembledResult } from './assemble.ts'
 
 /**
@@ -94,12 +94,12 @@ beforeEach(async () => {
   vi.stubEnv('DSH_HOME', identityHome)
 })
 
-async function harness(_model: string, config: Partial<Config> = {}) {
+async function harness(_model: string, config: DeepSeekProfileConfig = {}) {
   const ctx = new Context()
   contexts.push(ctx)
   await ctx.plugin(LlmRuntime)
   await ctx.plugin(E2eAttachmentStore)
-  await ctx.plugin(LlmDeepSeek, config)
+  await ctx.plugin(LlmDeepSeek, { providers: { 'deepseek-official': config } })
   return ctx
 }
 
@@ -190,12 +190,14 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('llm-deepseek e2e (real API)', ()
       await writeFile(join(dir, '.credentials.yaml'), `version: 1\nrefs:\n  DEEPSEEK_API_KEY: ${JSON.stringify(key)}\n`, { mode: 0o600 })
       // Scrub the ambient variable so only the credential seam can supply the
       // key: this request proves the per-request resolution path end to end.
+      // The empty profile keeps the route registered while carrying nothing —
+      // the posture a Models-page add leaves behind.
       vi.stubEnv('DEEPSEEK_API_KEY', '')
       const ctx = new Context()
       contexts.push(ctx)
       await ctx.plugin(LlmRuntime)
       await ctx.plugin(LocalCredentialProvider, { path: join(dir, '.credentials.yaml'), watch: false })
-      await ctx.plugin(LlmDeepSeek, {})
+      await ctx.plugin(LlmDeepSeek, { providers: { 'deepseek-official': {} } })
 
       const result = await assemble(ctx, {
         model: FLASH,

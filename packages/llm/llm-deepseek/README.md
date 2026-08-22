@@ -10,47 +10,51 @@ The package root exposes the Cordis plugin contract and `DeepSeekAdapter`; wire 
 
 ## Config
 
+The section is a dict of provider profiles keyed by route, mirroring the pi-ai twin. This adapter serves exactly the `deepseek-official` key; any other key is refused where the section resolves. An empty (or omitted) dict composes dormant: no route registers until a profile exists here or the launch environment supplies the credential reference (see "Dynamic configuration" below).
+
 ```yaml
 - id: llm-deepseek
   name: '@deepseek-ai/dsh-llm-deepseek'
   config:
-    apiKeyEnv: DEEPSEEK_API_KEY  # default; resolved per request via ctx.credentials, then the environment
-    baseURL: https://api.deepseek.com # optional; $DEEPSEEK_BASE_URL then the public API when omitted
-    thinking: enabled        # optional; provider default is enabled
-    reasoningEffort: high    # optional; off | low | high | max — omitted ⇒ high
-    maxTokens: 256000        # optional positive per-request output cap; this is the default
-    streamIdleTimeoutMs: 300000 # optional; positive finite Node timer delay; five-minute default
-    maxRequestFilesBytes: 134217728 # optional positive integer; 128 MiB raw request-image default
-    maxInlineRequestImageBytes: 20971520 # base64 fallback high watermark; 20 MiB default
-    maxImagesPerRequest: 600       # provider request image-count limit
-    imageOffloadByteQuantum: 67108864 # oldest-image removal advances in 64 MiB steps
-    inlineImageOffloadByteQuantum: 10485760 # fallback removal advances in 10 MiB steps
-    imageOffloadCountQuantum: 20      # count overflow advances in 20-image steps
-    filesApiTimeoutMs: 60000           # per-image Files resolution deadline; one-minute default
-    fileExpiresAfterSeconds: 604800   # uploaded image lifetime; 1 hour to 30 days
-    fileRefreshMarginSeconds: 3600    # replace ids with less lifetime remaining
-    fileQuotaCleanupBatch: 100        # oldest harness-owned files deleted before one quota retry
-    retryPolicy:             # optional; omission uses normal mode with five retries
-      mode: always           # normal | always
-      backoff:
-        initialDelayMs: 500
-        maxDelayMs: 10000
-        jitterRatio: 0.1
-    defaultContextWindow: 1000000 # optional positive-integer fallback; this is the default
-    models:                  # optional; defaults to V4 Flash, V4 Pro, and V4 Flash Vision Exp
-      - id: deepseek-v4-flash
-        name: DeepSeek-V4-Flash
-      - id: deepseek-v4-flash-vision-exp
-        name: DeepSeek-V4-Flash-Vision-Exp
-        inputModalities: [text, image]
-        imagePixelBudget: 640000
-        imageMaxBytes: 1048576
-      - id: private-reasoner
-        description: Company-hosted reasoning model
-        contextWindow: 512000
+    providers:
+      deepseek-official:
+        apiKeyEnv: DEEPSEEK_API_KEY  # default; resolved per request via ctx.credentials, then the environment
+        baseURL: https://api.deepseek.com # optional; $DEEPSEEK_BASE_URL then the public API when omitted
+        thinking: enabled        # optional; provider default is enabled
+        reasoningEffort: high    # optional; off | low | high | max — omitted ⇒ high
+        maxTokens: 256000        # optional positive per-request output cap; this is the default
+        streamIdleTimeoutMs: 300000 # optional; positive finite Node timer delay; five-minute default
+        maxRequestFilesBytes: 134217728 # optional positive integer; 128 MiB raw request-image default
+        maxInlineRequestImageBytes: 20971520 # base64 fallback high watermark; 20 MiB default
+        maxImagesPerRequest: 600       # provider request image-count limit
+        imageOffloadByteQuantum: 67108864 # oldest-image removal advances in 64 MiB steps
+        inlineImageOffloadByteQuantum: 10485760 # fallback removal advances in 10 MiB steps
+        imageOffloadCountQuantum: 20      # count overflow advances in 20-image steps
+        filesApiTimeoutMs: 60000           # per-image Files resolution deadline; one-minute default
+        fileExpiresAfterSeconds: 604800   # uploaded image lifetime; 1 hour to 30 days
+        fileRefreshMarginSeconds: 3600    # replace ids with less lifetime remaining
+        fileQuotaCleanupBatch: 100        # oldest harness-owned files deleted before one quota retry
+        retryPolicy:             # optional; omission uses normal mode with five retries
+          mode: always           # normal | always
+          backoff:
+            initialDelayMs: 500
+            maxDelayMs: 10000
+            jitterRatio: 0.1
+        defaultContextWindow: 1000000 # optional positive-integer fallback; this is the default
+        models:                  # optional; defaults to V4 Flash, V4 Pro, and V4 Flash Vision Exp
+          - id: deepseek-v4-flash
+            name: DeepSeek-V4-Flash
+          - id: deepseek-v4-flash-vision-exp
+            name: DeepSeek-V4-Flash-Vision-Exp
+            inputModalities: [text, image]
+            imagePixelBudget: 640000
+            imageMaxBytes: 1048576
+          - id: private-reasoner
+            description: Company-hosted reasoning model
+            contextWindow: 512000
 ```
 
-The plugin registers the single provider route `deepseek-official` together with its resolved `retryPolicy`; omission resolves to normal mode with five retries. A request selects it with `provider: deepseek-official`; its `model` is passed through as the wire `model` string, so changing DeepSeek models does not require lifecycle-time registration. Omitting `models` advertises `deepseek-v4-flash`, `deepseek-v4-pro`, and the image-capable `deepseek-v4-flash-vision-exp`, each with a 1,000,000-token context window; an explicit list replaces those defaults, while `models: []` advertises none. Catalog entries are exposed through `ctx.llm.listModels('deepseek-official')` for clients such as ACP editors and the Web selector, but remain advisory: unlisted model ids still pass through unchanged as text-only routes. An omitted entry name defaults to its id, and omitted `inputModalities` means `text` only.
+A profile under `providers.deepseek-official` registers the single provider route `deepseek-official` together with its resolved `retryPolicy`; omission resolves to normal mode with five retries. A request selects it with `provider: deepseek-official`; its `model` is passed through as the wire `model` string, so changing DeepSeek models does not require lifecycle-time registration. Omitting `models` advertises `deepseek-v4-flash`, `deepseek-v4-pro`, and the image-capable `deepseek-v4-flash-vision-exp`, each with a 1,000,000-token context window; an explicit list replaces those defaults, while `models: []` advertises none. Catalog entries are exposed through `ctx.llm.listModels('deepseek-official')` for clients such as ACP editors and the Web selector, but remain advisory: unlisted model ids still pass through unchanged as text-only routes. An omitted entry name defaults to its id, and omitted `inputModalities` means `text` only.
 
 An image-capable catalog entry declares `inputModalities: [text, image]` and may set `imagePixelBudget`, `imageMaxBytes`, or `imageDetail: low`. The ordinary default is 640,000 total pixels and 1MiB encoded bytes; low detail defaults to 512 by 512 total pixels. The attachment store scales by `min(1, sqrt(pixelBudget / (width * height)))` and rounds inward to keep the pixel count at or below the hard cap, so a 2048 by 1024 normalized attachment becomes about 1130 by 565 instead of a forced square. Request encoders run lazily: low-color images try PNG (palette only without alpha) then WebP 85 and 80, other alpha images try WebP 85 then 80, and other opaque images try JPEG 85 then 80; dimensions shrink only when both quality attempts exceed 1MiB. Concurrent generation of one `variantId` shares one transform. A caller can cancel its own wait without interrupting other waiters; the transform stops when no waiter remains. The adapter normally uploads the exact derived request bytes through `POST /files` and sends `{type: "file", file_id}` blocks. A failed or timed-out file-id resolution rebuilds the whole chat request with those same request versions as base64 data URLs; one request never mixes file ids and inline images. Every retained image is preceded by stable text naming the complete attachment id and actual request dimensions. User, tool-result, agent-loop, compaction, and direct `ctx.llm.stream` requests all use this projection. Text-only routes receive stable attachment placeholders while durable history keeps its image references.
 
@@ -76,13 +80,17 @@ The same exact-model result exposes ordered `off`, `low`, `high`, and `max` effo
 
 Connection facts are not frozen at load. `resolveAdapterOptions` is the one explicit resolve step from raw config to validated facts, and the adapter re-reads them through a thunk **once per operation**: base URL, catalog, request defaults, image and Files policies, and idle budget all take effect on the next request, while an in-flight stream keeps the facts it started with. Three optional seams feed that thunk:
 
-- **`ctx.settings`** — the plugin registers the `llm-deepseek` namespace with this same `Config` schema and its `cordis.yml` entry as the composition `base`, so a `llm-deepseek:` section in the user settings document overrides any field without a restart. Without a mounted settings service the entry config alone drives the adapter, unchanged. A live settings snapshot that passes the schema but fails a beyond-schema bound (a duplicate catalog id, a broken thinking/effort pair) keeps the last good facts and logs the failure; the entry config itself still fails plugin load.
+- **`ctx.settings`** — the plugin registers the `llm-deepseek` namespace with this same `Config` schema and its `cordis.yml` entry as the composition `base`, so a `llm-deepseek.providers.deepseek-official:` section in the user settings document overrides any profile field without a restart. The dict shape makes the route's presence layer data: a stored profile can be deleted again (the web Models page does exactly that), which withdraws the route, while an empty dict composes dormant. Without a mounted settings service the entry config alone drives the adapter, unchanged. A live settings snapshot that passes the schema but fails a beyond-schema bound (a duplicate catalog id, a broken thinking/effort pair) keeps the last good facts and logs the failure; the entry config itself still fails plugin load.
 - **`ctx.credentials`** — the API key resolves per stream call, from the *same* resolved snapshot that supplies the endpoint. Configuration carries only `apiKeyEnv`, never a literal key: the reference resolves through the credential seam, and without a mounted seam through the trusted environment layers. Because credential facts travel with the connection facts, a settings snapshot the resolver rejects contributes neither its endpoint nor its key: the whole previous generation keeps serving. Every resolved key is format-checked before use, so a value no HTTP header can carry is refused with `LlmError('INVALID_CREDENTIAL')` naming the failing entry point — never any part of the key — instead of surfacing as an opaque `fetch` `TypeError`. A request with no key anywhere fails with `MISSING_CREDENTIAL` naming every configuration entry point, while the route stays registered and the catalog stays browsable — first-run onboarding is "browse models, store the key, prompt again", with no restart between.
 - **`ctx.attachments`** — image requests resolve this service at request time, so Cordis load order does not freeze optional image availability. Absence rejects image input with `UNSUPPORTED_CONTENT`; text-only calls do not require the service.
 
 The one registration-captured fact is the retry policy: when its resolved value changes, the plugin re-registers the route in place (same adapter instance, one synchronous section), so `ctx.llm.providerRetryPolicy('deepseek-official')` always reports the current policy.
 
-The plugin also declares its route in the configurable-provider directory (`ctx.llm.listConfigurableProviders()`): provider `deepseek-official`, settings namespace `llm-deepseek`, empty settings path — the whole section is the profile. Configuration surfaces use that entry to offer this adapter alongside dormant pi-ai providers.
+### Dormancy
+
+The route registers only when something configures it: a profile pinned by the composition entry, a profile stored in the user settings layer (added from the web Models page or `settings.yaml`), or a launch environment that already answers the profile's credential reference (`DEEPSEEK_API_KEY` by default). A checkout exporting `DEEPSEEK_API_KEY` therefore keeps working with no stored configuration at all, while a fresh deployment with no key anywhere sees DeepSeek only as an addable entry in configuration surfaces. Deleting the stored profile withdraws the route again; a launch-environment credential keeps it registered until that environment changes, since it is still configuration.
+
+The plugin also declares its route in the configurable-provider directory (`ctx.llm.listConfigurableProviders()`): provider `deepseek-official`, settings namespace `llm-deepseek`, settings path `providers.deepseek-official`. The directory entry is independent of the route state — configuration surfaces offer DeepSeek while it is dormant, the way they offer every pi-ai catalog route — and its address names the route's profile, so a stored one is removable.
 
 ## App attribution
 

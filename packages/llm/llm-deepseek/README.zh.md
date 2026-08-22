@@ -10,47 +10,51 @@ harness LLM（大语言模型）seam 的 DeepSeek chat-completions 适配器：�
 
 ## 配置
 
+分节是按路由键控的提供方 profile 字典，与 pi-ai twin 一致。本适配器只服务 `deepseek-official` 这一个键；其他任何键都会在分节解析处被拒绝。空字典（或省略）即休眠组合：在本节出现 profile、或启动环境已能解析凭据引用之前，不注册任何路由（见下文「动态配置」）。
+
 ```yaml
 - id: llm-deepseek
   name: '@deepseek-ai/dsh-llm-deepseek'
   config:
-    apiKeyEnv: DEEPSEEK_API_KEY  # default; resolved per request via ctx.credentials, then the environment
-    baseURL: https://api.deepseek.com # optional; $DEEPSEEK_BASE_URL then the public API when omitted
-    thinking: enabled        # optional; provider default is enabled
-    reasoningEffort: high    # optional; off | low | high | max — omitted ⇒ high
-    maxTokens: 256000        # optional positive per-request output cap; this is the default
-    streamIdleTimeoutMs: 300000 # optional; positive finite Node timer delay; five-minute default
-    maxRequestFilesBytes: 134217728 # optional positive integer; 128 MiB raw request-image default
-    maxInlineRequestImageBytes: 20971520 # base64 fallback high watermark; 20 MiB default
-    maxImagesPerRequest: 600       # provider request image-count limit
-    imageOffloadByteQuantum: 67108864 # oldest-image removal advances in 64 MiB steps
-    inlineImageOffloadByteQuantum: 10485760 # fallback removal advances in 10 MiB steps
-    imageOffloadCountQuantum: 20      # count overflow advances in 20-image steps
-    filesApiTimeoutMs: 60000           # per-image Files resolution deadline; one-minute default
-    fileExpiresAfterSeconds: 604800   # uploaded image lifetime; 1 hour to 30 days
-    fileRefreshMarginSeconds: 3600    # replace ids with less lifetime remaining
-    fileQuotaCleanupBatch: 100        # oldest harness-owned files deleted before one quota retry
-    retryPolicy:             # optional; omission uses normal mode with five retries
-      mode: always           # normal | always
-      backoff:
-        initialDelayMs: 500
-        maxDelayMs: 10000
-        jitterRatio: 0.1
-    defaultContextWindow: 1000000 # optional positive-integer fallback; this is the default
-    models:                  # optional; defaults to V4 Flash, V4 Pro, and V4 Flash Vision Exp
-      - id: deepseek-v4-flash
-        name: DeepSeek-V4-Flash
-      - id: deepseek-v4-flash-vision-exp
-        name: DeepSeek-V4-Flash-Vision-Exp
-        inputModalities: [text, image]
-        imagePixelBudget: 640000
-        imageMaxBytes: 1048576
-      - id: private-reasoner
-        description: Company-hosted reasoning model
-        contextWindow: 512000
+    providers:
+      deepseek-official:
+        apiKeyEnv: DEEPSEEK_API_KEY  # default; resolved per request via ctx.credentials, then the environment
+        baseURL: https://api.deepseek.com # optional; $DEEPSEEK_BASE_URL then the public API when omitted
+        thinking: enabled        # optional; provider default is enabled
+        reasoningEffort: high    # optional; off | low | high | max — omitted ⇒ high
+        maxTokens: 256000        # optional positive per-request output cap; this is the default
+        streamIdleTimeoutMs: 300000 # optional; positive finite Node timer delay; five-minute default
+        maxRequestFilesBytes: 134217728 # optional positive integer; 128 MiB raw request-image default
+        maxInlineRequestImageBytes: 20971520 # base64 fallback high watermark; 20 MiB default
+        maxImagesPerRequest: 600       # provider request image-count limit
+        imageOffloadByteQuantum: 67108864 # oldest-image removal advances in 64 MiB steps
+        inlineImageOffloadByteQuantum: 10485760 # fallback removal advances in 10 MiB steps
+        imageOffloadCountQuantum: 20      # count overflow advances in 20-image steps
+        filesApiTimeoutMs: 60000           # per-image Files resolution deadline; one-minute default
+        fileExpiresAfterSeconds: 604800   # uploaded image lifetime; 1 hour to 30 days
+        fileRefreshMarginSeconds: 3600    # replace ids with less lifetime remaining
+        fileQuotaCleanupBatch: 100        # oldest harness-owned files deleted before one quota retry
+        retryPolicy:             # optional; omission uses normal mode with five retries
+          mode: always           # normal | always
+          backoff:
+            initialDelayMs: 500
+            maxDelayMs: 10000
+            jitterRatio: 0.1
+        defaultContextWindow: 1000000 # optional positive-integer fallback; this is the default
+        models:                  # optional; defaults to V4 Flash, V4 Pro, and V4 Flash Vision Exp
+          - id: deepseek-v4-flash
+            name: DeepSeek-V4-Flash
+          - id: deepseek-v4-flash-vision-exp
+            name: DeepSeek-V4-Flash-Vision-Exp
+            inputModalities: [text, image]
+            imagePixelBudget: 640000
+            imageMaxBytes: 1048576
+          - id: private-reasoner
+            description: Company-hosted reasoning model
+            contextWindow: 512000
 ```
 
-该插件注册唯一提供方路由 `deepseek-official`，并一同注册解析后的 `retryPolicy`；省略时会解析为 normal 模式并重试五次。请求使用 `provider: deepseek-official` 选择该路由；其 `model` 会作为协议 `model` 字符串原样传递，因此更改 DeepSeek 模型不需要生命周期时注册。省略 `models` 会公布 `deepseek-v4-flash`、`deepseek-v4-pro` 与支持图片输入的 `deepseek-v4-flash-vision-exp`，三者的上下文窗口均为 1,000,000 token；显式列表会替换这些默认值，`models: []` 则不公布任何模型。Catalog 配置项通过 `ctx.llm.listModels('deepseek-official')` 公开给 ACP（Agent Client Protocol）编辑器和 Web 选择器等客户端，但仍只提供建议：未列出模型 id 仍原样传递，并按纯文本路由处理。省略配置项 name 默认为其 id，省略 `inputModalities` 则表示仅支持 `text`。
+`providers.deepseek-official` 下的 profile 会注册唯一提供方路由 `deepseek-official`，并一同注册解析后的 `retryPolicy`；省略时会解析为 normal 模式并重试五次。请求使用 `provider: deepseek-official` 选择该路由；其 `model` 会作为协议 `model` 字符串原样传递，因此更改 DeepSeek 模型不需要生命周期时注册。省略 `models` 会公布 `deepseek-v4-flash`、`deepseek-v4-pro` 与支持图片输入的 `deepseek-v4-flash-vision-exp`，三者的上下文窗口均为 1,000,000 token；显式列表会替换这些默认值，`models: []` 则不公布任何模型。Catalog 配置项通过 `ctx.llm.listModels('deepseek-official')` 公开给 ACP（Agent Client Protocol）编辑器和 Web 选择器等客户端，但仍只提供建议：未列出模型 id 仍原样传递，并按纯文本路由处理。省略配置项 name 默认为其 id，省略 `inputModalities` 则表示仅支持 `text`。
 
 支持图片的 catalog 配置项声明 `inputModalities: [text, image]`，并可设置 `imagePixelBudget`、`imageMaxBytes` 或 `imageDetail: low`。普通默认值为总像素 640,000、编码字节 1MiB；low detail 的默认总像素为 512×512。附件存储按 `min(1, sqrt(pixelBudget / (width * height)))` 缩放，并向预算内取整，确保总像素不超过硬上限。因此 2048×1024 规范化附件会得到约 1130×565 的请求版本，而不会被强制变成正方形。请求编码按需执行：低色数图片先尝试 PNG，只有不带 alpha 通道时才使用 palette，再尝试质量 85 和 80 的 WebP；其他透明图片依次尝试质量 85 和 80 的 WebP；其他非透明图片依次尝试质量 85 和 80 的 JPEG。两个质量档均超过 1MiB 时才缩小尺寸。同一 `variantId` 的并发生成共享一次变换。调用方可以单独取消等待，不会中断其他等待方；没有等待方时才会停止变换。适配器通常通过 `POST /files` 上传确切的派生请求字节，再发送 `{type: "file", file_id}` 块。File ID 解析失败或超时后，适配器会用相同请求版本的 base64 data URL 重新组装整个 chat 请求；同一请求不会混用 file ID 和内联图片。每张保留图片前都有稳定文本，写明完整附件 ID 和实际请求尺寸。User、工具结果、agent loop、压缩和直接 `ctx.llm.stream` 请求都使用该投影。纯文本路由会收到稳定的附件占位文本，持久历史继续保留图片引用。
 
@@ -76,13 +80,17 @@ harness LLM（大语言模型）seam 的 DeepSeek chat-completions 适配器：�
 
 连接事实不在加载时冻结。`resolveAdapterOptions` 是从原始配置到已校验事实的唯一显式 resolve 步骤，适配器经由一个 thunk **每操作重读一次**：base URL、catalog、请求默认值、图片和 Files 策略与 idle 预算都在下一次请求生效，进行中的流则保持其起始事实。三个可选 seam 供给该 thunk：
 
-- **`ctx.settings`**——插件用同一份 `Config` schema 注册 `llm-deepseek` namespace，并以其 `cordis.yml` 条目为组合 `base`，因此用户设置文档中的 `llm-deepseek:` 分节可以免重启覆盖任何字段。未挂载 settings 服务时，仅由 entry 配置驱动适配器，行为不变。存活 settings 快照若通过 schema 却违反 schema 之外的约束（重复的 catalog id、无法成立的 thinking／推理强度组合），则保留最后可用事实并记录失败；entry 配置本身仍会使插件加载失败。
+- **`ctx.settings`**——插件用同一份 `Config` schema 注册 `llm-deepseek` namespace，并以其 `cordis.yml` 条目为组合 `base`，因此用户设置文档中的 `llm-deepseek.providers.deepseek-official:` 分节可以免重启覆盖任何 profile 字段。字典形状让路由的存在性成为分层数据：存储的 profile 可以再次删除（Web 模型页正是这样做的），删除即撤回路由；空字典则组合为休眠。未挂载 settings 服务时，仅由 entry 配置驱动适配器，行为不变。存活 settings 快照若通过 schema 却违反 schema 之外的约束（重复的 catalog id、无法成立的 thinking／推理强度组合），则保留最后可用事实并记录失败；entry 配置本身仍会使插件加载失败。
 - **`ctx.credentials`**——API 密钥按每次 stream 调用解析，取自与端点*同一*份解析后的快照。配置只携带 `apiKeyEnv`，从不携带字面密钥：该引用经凭据 seam 解析，未挂载 seam 时则经受信环境层解析。由于凭据事实与连接事实同行，被 resolver 拒绝的 settings 快照既不贡献自己的端点，也不贡献自己的密钥：整个先前世代继续服务。每个解析出的密钥在使用前都会被校验格式，因此 HTTP 标头无法承载的值会以 `LlmError('INVALID_CREDENTIAL')` 被拒绝，点名失败的入口，但绝不透露密钥的任何部分，而不是以语义不明的 `fetch` `TypeError` 形式浮现。任何地方都没有密钥的请求以 `MISSING_CREDENTIAL` 失败，并点名每个配置入口，同时路由保持注册、catalog 保持可浏览——首次运行的上手流程就是「浏览模型、存入密钥、再次发起提示」，中间无需任何重启。
 - **`ctx.attachments`**——图片请求会在请求时解析该服务，因此 Cordis 加载顺序不会冻结可选图片能力。服务缺失时，图片输入以 `UNSUPPORTED_CONTENT` 失败；纯文本调用不依赖该服务。
 
 唯一在注册期捕获的事实是重试策略：其解析值变化时，插件原地重新注册该路由（同一适配器实例、一个同步区段），因此 `ctx.llm.providerRetryPolicy('deepseek-official')` 始终报告当前策略。
 
-该插件还会在可配置提供方目录（`ctx.llm.listConfigurableProviders()`）中声明自己的路由：提供方为 `deepseek-official`，settings namespace 为 `llm-deepseek`，settings path 为空——整个分节就是 profile。配置界面借助该条目，把本适配器与休眠的 pi-ai 提供方一并呈现。
+### 休眠
+
+路由只在被配置时注册：组合条目固定的 profile、用户设置层存储的 profile（通过 Web 模型页或 `settings.yaml` 添加）、或启动环境已能应答该 profile 凭据引用（默认 `DEEPSEEK_API_KEY`）。因此仅导出 `DEEPSEEK_API_KEY` 的 checkout 在没有任何存储配置时照常工作，而没有任何密钥的全新部署只会在配置界面把 DeepSeek 看作一个可添加条目。删除存储的 profile 会再次撤回路由；来自启动环境的凭据会让路由保持注册，直到该环境变化——因为它仍然是配置。
+
+该插件还会在可配置提供方目录（`ctx.llm.listConfigurableProviders()`）中声明自己的路由：提供方为 `deepseek-official`，settings namespace 为 `llm-deepseek`，settings path 为 `providers.deepseek-official`。目录条目独立于路由状态——配置界面在 DeepSeek 休眠时同样提供它，正如提供每个 pi-ai catalog 路由——且其地址指向该路由的 profile，因此存储的 profile 可删除。
 
 ## 应用归因
 

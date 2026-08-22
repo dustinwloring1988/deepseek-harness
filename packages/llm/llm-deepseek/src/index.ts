@@ -5,16 +5,30 @@
  * `llm-deepseek` user-settings section (`ctx.settings`) and resolves the API
  * key through the optional credential seam (`ctx.credentials`), so a changed
  * base URL, catalog, or key reaches the very next request without restarting
- * anything, while an in-flight stream keeps the facts it started with. The
- * one registration-captured fact — the retry policy — re-registers the route
- * in place when it changes.
+ * anything, while an in-flight stream keeps the facts it started with.
+ *
+ * The route's profile lives at the section's `providers.deepseek-official` key
+ * and starts absent: a composition that pins nothing and a launch environment
+ * with no `DEEPSEEK_API_KEY` leave the adapter dormant — configuration
+ * surfaces offer the route, but nothing registers until a profile
+ * (composition pin or stored user profile) exists, and deleting the stored
+ * profile withdraws it again. The dict shape is what keeps absence
+ * distinguishable: a settings resolver materializes an addressed profile
+ * object with its defaults, but an empty route dict stays empty.
+ * The one registration-captured fact — the retry policy — re-registers the
+ * route in place when it changes.
  * @module @deepseek-ai/dsh-llm-deepseek
  */
 
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { assertUsableApiKey, LlmError, resolveRetryPolicy, RetryPolicySchema } from '@deepseek-ai/dsh-llm'
-import type { ModelModality, RetryPolicyConfig } from '@deepseek-ai/dsh-llm'
+import type {
+  AdapterRegistrationHandle,
+  ModelModality,
+  ResolvedRetryPolicy,
+  RetryPolicyConfig,
+} from '@deepseek-ai/dsh-llm'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { launchEnvironmentOf, type LaunchEnvironmentSnapshot } from '@deepseek-ai/dsh-launch-environment'
 import { deepEqualJson, installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
@@ -96,14 +110,15 @@ const DEFAULT_MODELS: DeepSeekCatalogModel[] = [
 const MODEL_MODALITIES = ['text', 'image'] as const satisfies readonly ModelModality[]
 
 /**
- * Plugin config, validated by the same-named schemastery schema and doubling
- * as the `llm-deepseek` settings-section shape. Every field is optional in
- * yml: a missing API key resolves through {@link Config.apiKeyEnv} at each
- * request (a request without any key fails with `MISSING_CREDENTIAL`, not at
- * plugin load), omitted thinking mode uses the provider default, and omitted
- * reasoning effort resolves to `high`.
+ * One deployment's DeepSeek connection and request policy — the shape of the
+ * settings section's {@link Config.provider} profile. Every field is optional
+ * in yml: a missing API key resolves through
+ * {@link DeepSeekProfileConfig.apiKeyEnv} at each request (a request without
+ * any key fails with `MISSING_CREDENTIAL`, not at plugin load), omitted
+ * thinking mode uses the provider default, and omitted reasoning effort
+ * resolves to `high`.
  */
-export interface Config {
+export interface DeepSeekProfileConfig {
   /** Credential reference (environment-variable name) resolved per request; defaults to `DEEPSEEK_API_KEY`. */
   apiKeyEnv?: string
   /** Endpoint base; falls back to $DEEPSEEK_BASE_URL from a trusted environment layer, then the public API. */
@@ -144,6 +159,23 @@ export interface Config {
   retryPolicy?: RetryPolicyConfig
 }
 
+/**
+ * Plugin config, validated by the same-named schemastery schema and doubling
+ * as the `llm-deepseek` settings-section shape. Profiles are a dict keyed by
+ * provider route, so the composition base and a user-settings layer merge per
+ * route and the route set is structural: an empty (or omitted) dict is the
+ * dormant posture, and a stored profile can be deleted again.
+ */
+export interface Config {
+  /**
+   * Provider profiles keyed by route. This adapter serves exactly the
+   * `deepseek-official` key; any other key is refused where the section
+   * resolves. An empty (or omitted) dict is the dormant settings-driven
+   * posture.
+   */
+  providers?: Record<string, DeepSeekProfileConfig>
+}
+
 const catalogModel: z<DeepSeekCatalogModel> = z.object({
   id: z.string().required(),
   name: z.string(),
@@ -156,7 +188,8 @@ const catalogModel: z<DeepSeekCatalogModel> = z.object({
   imageDetail: z.union(['auto', 'low']),
 })
 
-export const Config: z<Config> = z.object({
+/** Runtime schema of one {@link DeepSeekProfileConfig}. */
+const profileSchema: z<DeepSeekProfileConfig> = z.object({
   apiKeyEnv: z.string().role('credential-ref').default(DEFAULT_API_KEY_ENV),
   baseURL: z.string(),
   thinking: z.union(['enabled', 'disabled']),
@@ -177,6 +210,35 @@ export const Config: z<Config> = z.object({
   fileQuotaCleanupBatch: z.number().step(1).min(1).max(1_000).default(DEFAULT_FILE_QUOTA_CLEANUP_BATCH),
   retryPolicy: RetryPolicySchema,
 })
+
+/** Runtime schema for {@link Config}. */
+export const Config: z<Config> = z.object({
+  providers: z.dict(profileSchema).default({}),
+})
+
+/**
+ * The one profile this adapter serves, or `undefined` for the dormant
+ * posture. An empty route profile counts as absent: schemastery materializes
+ * an addressed object with its defaults, so only the dict's keys say whether
+ * anything is configured. A key this adapter does not serve is refused rather
+ * than skipped — a silently ignored route would look configured everywhere
+ * while serving nothing.
+ * @param providers - configured provider profiles keyed by route.
+ * @returns the `deepseek-official` profile when one with content exists.
+ */
+export function pinnedProfile(
+  providers: Readonly<Record<string, DeepSeekProfileConfig>> | undefined,
+): DeepSeekProfileConfig | undefined {
+  if (providers !== undefined) {
+    for (const key of Object.keys(providers)) {
+      if (key !== PROVIDER) {
+        throw new Error(`llm-deepseek: unknown provider route "${key}"; this adapter serves only "${PROVIDER}"`)
+      }
+    }
+  }
+  const profile = providers?.[PROVIDER]
+  return profile === undefined || Object.keys(profile).length === 0 ? undefined : profile
+}
 
 /** Public API default; the internal endpoint comes from $DEEPSEEK_BASE_URL. */
 export const PUBLIC_BASE_URL = 'https://api.deepseek.com'
@@ -261,18 +323,24 @@ function resolveModels(models: readonly DeepSeekCatalogModel[] | undefined): Dee
 }
 
 /**
- * The one explicit resolve step from raw config to validated connection
+ * The one explicit resolve step from raw profile to validated connection
  * facts. Programmatic construction may bypass Schemastery normalization, so
  * every default and bound is re-judged here — for the composition entry at
  * load (fail loud) and for each settings snapshot at its first use.
- * @param config - raw plugin config or resolved settings snapshot.
+ * @param profile - raw provider profile or resolved settings snapshot; the
+ * absent profile resolves to the built-in defaults, which is the shape every
+ * dormant-then-activated registration serves from.
  * @param environment - this run's environment layers, or `undefined` outside
  * the product CLI. Every layer may supply an endpoint: the product trusts the
  * project it is launched in, so a checkout can point its own agent at the
  * gateway that checkout is meant to use.
  * @returns validated connection facts plus the credential reference.
  */
-export function resolveAdapterOptions(config: Config, environment?: LaunchEnvironmentSnapshot): ResolvedDeepSeekOptions {
+export function resolveAdapterOptions(
+  profile: DeepSeekProfileConfig | undefined,
+  environment?: LaunchEnvironmentSnapshot,
+): ResolvedDeepSeekOptions {
+  const config = profile ?? {}
   if (config.thinking === 'disabled'
     && config.reasoningEffort !== undefined
     && config.reasoningEffort !== 'off') {
@@ -385,13 +453,13 @@ export function resolveAdapterOptions(config: Config, environment?: LaunchEnviro
 
 export function apply(ctx: Context, config: Config): void {
   let current: () => Config = () => config
-  let lastRaw: Config | undefined
+  let lastRaw: Readonly<Record<string, DeepSeekProfileConfig>> | undefined
   let lastGood: ResolvedDeepSeekOptions | undefined
   const options = (): ResolvedDeepSeekOptions => {
-    const raw = current()
+    const raw = current().providers
     if (raw === lastRaw && lastGood !== undefined) return lastGood
     try {
-      const next = resolveAdapterOptions(raw, launchEnvironmentOf(ctx))
+      const next = resolveAdapterOptions(pinnedProfile(raw), launchEnvironmentOf(ctx))
       lastRaw = raw
       lastGood = next
       return next
@@ -406,7 +474,17 @@ export function apply(ctx: Context, config: Config): void {
       return lastGood
     }
   }
-  options()
+  /**
+   * Whether the launch environment already answers the profile's credential
+   * reference. Only consulted while no profile is pinned or stored, this is
+   * what keeps a checkout exporting `DEEPSEEK_API_KEY` working with no stored
+   * configuration at all.
+   */
+  const environmentSuppliesCredential = (): boolean => {
+    const environment = launchEnvironmentOf(ctx)
+    const ambient = environment.get(resolveAdapterOptions(undefined, environment).apiKeyEnv)?.value
+    return typeof ambient === 'string' && ambient.length > 0
+  }
 
   const resolveApiKey = async (connection: ResolvedDeepSeekOptions): Promise<string> => {
     // Every credential fact comes from the caller's snapshot, so a rejected
@@ -439,26 +517,53 @@ export function apply(ctx: Context, config: Config): void {
     resolveUserId,
     resolveAttachments: () => ctx.get('attachments'),
   })
+  // The directory entry is independent of the route state, exactly like the
+  // pi-ai adapter's: configuration surfaces can offer and configure DeepSeek
+  // while no route is registered, and the address names the route's profile
+  // so a stored one stays removable.
   ctx.llm.registerConfigurableProviders([
-    { provider: PROVIDER, displayName: 'DeepSeek', settingsNs: NS, settingsPath: [] },
+    {
+      provider: PROVIDER,
+      displayName: 'DeepSeek',
+      settingsNs: NS,
+      settingsPath: ['providers', PROVIDER],
+    },
   ])
-  // Route effects bind to this apply fiber via the stable `ctx` reference,
-  // even when a swap runs inside the scoped settings callback below.
-  const registration = ctx.llm.registerAdapter([PROVIDER], adapter)
-  let registeredPolicy = options().retryPolicy
+  let registration: AdapterRegistrationHandle | undefined
+  let registeredPolicy: ResolvedRetryPolicy | undefined
   const ensureRegistrationFacts = (): void => {
+    if (pinnedProfile(current().providers) === undefined && !environmentSuppliesCredential()) {
+      // Dormant: nothing pins a profile and no ambient credential exists, so
+      // no route registers. An existing registration withdraws its routes but
+      // stays alive, ready to re-register the moment a section supplies a
+      // profile again.
+      registration?.replace([])
+      registeredPolicy = undefined
+      return
+    }
     const policy = options().retryPolicy
-    if (deepEqualJson(policy, registeredPolicy)) return
-    // The registry captures the retry policy at registration, so it is the one
-    // fact per-request resolution cannot refresh. `replace` re-reads it in one
-    // synchronous registry section: disposing and re-registering instead would
-    // publish an empty route set between the two, and an observer that reacted
-    // to it would see this provider disappear and come back.
-    registration.replace([PROVIDER])
+    if (registration === undefined) {
+      registration = ctx.llm.registerAdapter([PROVIDER], adapter)
+    } else if (!deepEqualJson(policy, registeredPolicy)) {
+      // The registry captures the retry policy at registration, so it is the
+      // one fact per-request resolution cannot refresh. `replace` re-reads it
+      // in one synchronous registry section: disposing and re-registering
+      // instead would publish an empty route set between the two, and an
+      // observer that reacted to it would see this provider disappear and
+      // come back.
+      registration.replace([PROVIDER])
+    }
     registeredPolicy = policy
   }
+  ensureRegistrationFacts()
 
   installSettingsSection(ctx, NS, Config, config, {
+    // Refuse an unserviceable section where it is written — a route this
+    // adapter does not serve, or a beyond-schema bound — instead of storing a
+    // section that only fails at the next registration swap.
+    validate: (section) => {
+      pinnedProfile(section.providers)
+    },
     setSource: (source) => {
       current = source
     },

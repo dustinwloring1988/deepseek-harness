@@ -14,7 +14,7 @@ function fail<T>(message: string): RpcResponse<T> {
 }
 
 const DIRECTORY = [
-  { provider: 'deepseek-official', displayName: 'DeepSeek', settingsNs: 'llm-deepseek', settingsPath: [], active: true },
+  { provider: 'deepseek-official', displayName: 'DeepSeek', settingsNs: 'llm-deepseek', settingsPath: ['providers', 'deepseek-official'], active: true },
   { provider: 'openai', displayName: 'openai', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'openai'], active: true },
   { provider: 'anthropic', displayName: 'anthropic', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'anthropic'], active: false },
   { provider: 'ghost', displayName: 'Ghost', settingsNs: '', settingsPath: [], active: true },
@@ -24,8 +24,8 @@ const NAMESPACES = [
   {
     ns: 'llm-deepseek',
     schema: {},
-    value: { apiKeyEnv: 'DEEPSEEK_API_KEY', baseURL: 'https://base' },
-    base: { baseURL: 'https://base' },
+    value: { providers: { 'deepseek-official': { apiKeyEnv: 'DEEPSEEK_API_KEY', baseURL: 'https://base' } } },
+    user: { providers: { 'deepseek-official': { baseURL: 'https://base' } } },
     applies: 'live' as const,
     secrets: [],
     revision: 0,
@@ -83,9 +83,11 @@ describe('ModelsSettingsStore', () => {
     expect(state.credentialError).toBeNull()
     expect(seenRefs).toEqual([['DEEPSEEK_API_KEY', 'OPENAI_API_KEY']])
     const byProvider = new Map(state.rows.map(row => [row.entry.provider, row]))
+    // The stored profile lives only in the user layer, so the row is
+    // removable exactly like a pi-ai route.
     expect(byProvider.get('deepseek-official')).toMatchObject({
       configured: true,
-      removable: false,
+      removable: true,
       apiKeyEnv: 'DEEPSEEK_API_KEY',
       credential: { configured: false, writable: true },
     })
@@ -169,6 +171,41 @@ describe('ModelsSettingsStore', () => {
 })
 
 describe('edge joins', () => {
+  it('joins a dormant DeepSeek as unconfigured and a composition-pinned one as irremovable', async () => {
+    const { face, mirror } = api({
+      describeSettings: () => Promise.resolve(ok({
+        writable: true,
+        hasDocument: false,
+        namespaces: [
+          // Dormant: the section resolves but no route is stored in any layer.
+          { ns: 'llm-deepseek', schema: {}, value: {}, applies: 'live' as const, secrets: [], revision: 0 },
+          // Pinned by composition: the base layer carries the profile, so no
+          // delete button may offer to remove what the entry config pins.
+          {
+            ns: 'llm-pi-ai',
+            schema: {},
+            value: { providers: { openai: {} } },
+            base: { providers: { openai: {} } },
+            applies: 'live' as const,
+            secrets: [],
+            revision: 0,
+          },
+        ] as never,
+      })),
+      providers: () => Promise.resolve(ok({
+        providers: [
+          DIRECTORY[0],
+          { provider: 'openai', displayName: 'openai', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'openai'], active: true },
+        ] as never,
+      })),
+    })
+    const store = new ModelsSettingsStore(face, settingsSchema, mirror)
+    await store.load()
+    const byProvider = new Map(store.store.getSnapshot().rows.map(row => [row.entry.provider, row]))
+    expect(byProvider.get('deepseek-official')).toMatchObject({ configured: false, removable: false })
+    expect(byProvider.get('openai')).toMatchObject({ configured: true, removable: false })
+  })
+
   it('treats a non-object profile as having no credential reference', async () => {
     const { face, mirror } = api({
       describeSettings: () => Promise.resolve(ok({

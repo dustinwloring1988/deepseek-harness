@@ -6,7 +6,7 @@ import Schema from '@deepseek-ai/schemastery'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-test-runtime'
 import type { RpcResponse, SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
 import {
-  ModelsSection, needsSetup, providerCopy, providerTargetLabel, removeProviderProfile,
+  ModelsSection, providerCopy, providerTargetLabel, removeProviderProfile,
 } from '../src/client/ModelsSection.tsx'
 import type { ModelsSectionInjected, ModelsSectionProps } from '../src/client/ModelsSection.tsx'
 import { pathOps } from '../src/client/ProviderEditor.tsx'
@@ -16,7 +16,6 @@ import {
 import { apiKeyFailure } from '../src/client/apiKey.ts'
 import { SettingsDescribeMirror } from '@deepseek-ai/dsh-client-ui-settings/src/client/settings-mirror.ts'
 import { deriveKeyRef, ModelsSettingsStore } from '../src/client/store.ts'
-import type { ProviderRow } from '../src/client/store.ts'
 import { en } from '../src/client/locales.ts'
 import { settingsSchema } from './settings-schema.client.ts'
 
@@ -48,31 +47,33 @@ const PiAiConfig = Schema.object({
 })
 
 const DeepSeekConfig = Schema.object({
-  apiKeyEnv: Schema.string().role('credential-ref'),
-  baseURL: Schema.string().pattern(/^https:\/\//),
-  reasoningEffort: Schema.union(['off', 'low', 'high', 'max']),
-  defaultContextWindow: Schema.number().step(1).min(1),
-  models: Schema.array(Schema.object({
-    id: Schema.string().required(),
-    name: Schema.string(),
-    description: Schema.string(),
-    contextWindow: Schema.number().step(1).min(1),
-  // The adapter declares its catalog as a schema default rather than a
-  // composition entry, which is what the restore-defaults path has to read.
-  })).default([
-    {
-      id: 'deepseek-v4-flash',
-      name: 'DeepSeek-V4-Flash',
-      description: '',
-      contextWindow: 1_000_000,
-    },
-    {
-      id: 'deepseek-v4-pro',
-      name: 'DeepSeek-V4-Pro',
-      description: '',
-      contextWindow: 1_000_000,
-    },
-  ]),
+  providers: Schema.dict(Schema.object({
+    apiKeyEnv: Schema.string().role('credential-ref'),
+    baseURL: Schema.string().pattern(/^https:\/\//),
+    reasoningEffort: Schema.union(['off', 'low', 'high', 'max']),
+    defaultContextWindow: Schema.number().step(1).min(1),
+    models: Schema.array(Schema.object({
+      id: Schema.string().required(),
+      name: Schema.string(),
+      description: Schema.string(),
+      contextWindow: Schema.number().step(1).min(1),
+    // The adapter declares its catalog as a schema default rather than a
+    // composition entry, which is what the restore-defaults path has to read.
+    })).default([
+      {
+        id: 'deepseek-v4-flash',
+        name: 'DeepSeek-V4-Flash',
+        description: '',
+        contextWindow: 1_000_000,
+      },
+      {
+        id: 'deepseek-v4-pro',
+        name: 'DeepSeek-V4-Pro',
+        description: '',
+        contextWindow: 1_000_000,
+      },
+    ]),
+  })),
 })
 
 const DEFAULT_DEEPSEEK_MODELS = [
@@ -85,20 +86,25 @@ const DEFAULT_DEEPSEEK_MODELS = [
   { id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro', contextWindow: 1_000_000 },
 ]
 
+const DEEPSEEK_ROUTE = ['providers', 'deepseek-official'] as const
+
 function wireNamespaces(): SettingsNamespaceView[] {
   return [
     {
       ns: 'llm-deepseek',
       schema: JSON.parse(JSON.stringify(DeepSeekConfig.toJSON())) as unknown,
       value: {
-        apiKeyEnv: 'DEEPSEEK_API_KEY',
-        baseURL: 'https://base',
-        defaultContextWindow: 1_000_000,
-        maxTokens: 256_000,
-        models: DEFAULT_DEEPSEEK_MODELS,
+        providers: {
+          'deepseek-official': {
+            apiKeyEnv: 'DEEPSEEK_API_KEY',
+            baseURL: 'https://base',
+            defaultContextWindow: 1_000_000,
+            maxTokens: 256_000,
+            models: DEFAULT_DEEPSEEK_MODELS,
+          },
+        },
       },
-      base: { defaultContextWindow: 1_000_000, maxTokens: 256_000, models: DEFAULT_DEEPSEEK_MODELS },
-      user: { baseURL: 'https://base' },
+      user: { providers: { 'deepseek-official': { baseURL: 'https://base' } } },
       applies: 'live',
       secrets: [],
       revision: 0,
@@ -152,7 +158,7 @@ function scriptedFace(overrides: {
     llm: {
       providers: vi.fn(() => Promise.resolve(ok({
         providers: [
-          { provider: 'deepseek-official', displayName: 'DeepSeek', settingsNs: 'llm-deepseek', settingsPath: [], active: true },
+          { provider: 'deepseek-official', displayName: 'DeepSeek', settingsNs: 'llm-deepseek', settingsPath: DEEPSEEK_ROUTE, active: true },
           { provider: 'openai', displayName: 'openai', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'openai'], active: true },
           { provider: 'anthropic', displayName: 'anthropic', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'anthropic'], active: false },
           { provider: 'zombie', displayName: 'zombie', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'zombie'], active: false },
@@ -206,11 +212,19 @@ async function mountSection(overrides: Parameters<typeof scriptedFace>[0] = {}) 
 }
 
 /**
- * Mount for a user who cannot reach any provider yet: no credential is stored
- * anywhere, so the whole-section DeepSeek route owns the first-run setup card.
+ * Mount for a user who has not added DeepSeek: nothing is stored in the
+ * namespace, so the route is dormant and the page offers it through the add
+ * card instead of a row.
  */
 async function mountFirstRun(overrides: Parameters<typeof scriptedFace>[0] = {}) {
   const scripted = scriptedFace(overrides)
+  scripted.face.settings.describe.mockImplementation(() => Promise.resolve(ok({
+    writable: true,
+    hasDocument: false,
+    namespaces: wireNamespaces().map(namespace => namespace.ns === 'llm-deepseek'
+      ? { ...namespace, value: {} }
+      : namespace),
+  })))
   scripted.face.credentials.describe.mockImplementation((payload: { refs: string[] }) =>
     Promise.resolve(ok({
       credentials: Object.fromEntries(payload.refs.map(ref => [ref, { configured: false, writable: true }])),
@@ -236,22 +250,25 @@ describe('ModelsSection', () => {
     expect(document.body.textContent).toBe('')
   })
 
-  it('renders the unkeyed whole-section provider as an open setup card in the first-run posture', async () => {
+  it('offers a dormant DeepSeek through the add card instead of a row', async () => {
     await mountFirstRun()
-    // Nothing is reachable yet, and DeepSeek has no configured credential and
-    // no stored apiKey → setup card.
-    expect(screen.getByText('DeepSeek')).toBeTruthy()
-    expect(screen.getByLabelText(en.keyInput)).toBeTruthy()
+    // Nothing is stored for the route, so no row renders; openai is the only
+    // configured provider.
+    expect(screen.queryByText('DeepSeek')).toBeNull()
     expect(screen.getByText('openai')).toBeTruthy()
     expect(screen.queryByText('Active')).toBeNull()
     expect(screen.queryByText('Inactive')).toBeNull()
-    expect(screen.getByText(en.add)).toBeTruthy()
+    fireEvent.click(screen.getByText(en.add))
+    const pick = await screen.findByLabelText<HTMLSelectElement>(en.provider)
+    expect([...pick.options].map(option => option.value)).toContain('deepseek-official')
+    // The deepseek family editor keeps its own placeholder, not the pi-ai one.
+    expect(screen.getByLabelText<HTMLInputElement>(en.keyInput).placeholder).toBe(en.keyPlaceholder)
   })
 
-  it('leaves the unkeyed provider a plain row once another provider is usable', async () => {
+  it('renders a stored-but-unkeyed provider as an ordinary row with the missing dot', async () => {
     await mountSection()
-    // openai's key is stored, so the user is not blocked and nothing on the
-    // page opens itself over them.
+    // The stored profile makes DeepSeek a row even though no credential is
+    // stored; nothing on the page opens itself over the user.
     expect(screen.queryByLabelText(en.keyInput)).toBeNull()
     const configured = screen.getByRole('img', { name: en.credentialConfigured })
     expect(configured.getAttribute('title')).toBe(en.credentialConfigured)
@@ -259,7 +276,7 @@ describe('ModelsSection', () => {
     expect(configured.closest('li')?.textContent).toContain('openai')
     const missing = screen.getByRole('img', { name: en.credentialMissing })
     expect(missing.closest('li')?.textContent).toContain('DeepSeek')
-    // The card is still one click away.
+    // The card is one click away.
     fireEvent.click(screen.getByRole('button', { name: deepSeekCopy(en.editProvider) }))
     expect(screen.getByLabelText(en.keyInput)).toBeTruthy()
   })
@@ -279,50 +296,17 @@ describe('ModelsSection', () => {
       t={t}
     />)
 
-    const missing = screen.getByRole('img', { name: en.credentialMissing })
-    expect(missing.getAttribute('title')).toBe(en.credentialMissing)
-    expect(missing.className).toContain('credentialDotMissing')
-    expect(missing.closest('li')?.textContent).toContain('openai')
+    const missing = screen.getAllByRole('img', { name: en.credentialMissing })
+    // Both stored routes name a reference with nothing stored: DeepSeek's
+    // resolved default and openai's recorded one.
+    expect(missing.map(dot => dot.closest('li')?.textContent)).toEqual([
+      expect.stringContaining('DeepSeek'),
+      expect.stringContaining('openai'),
+    ])
+    expect(missing.every(dot => dot.getAttribute('title') === en.credentialMissing
+      && dot.className.includes('credentialDotMissing'))).toBe(true)
     expect(screen.queryByRole('img', { name: en.credentialConfigured })).toBeNull()
     expect(screen.getByText('zombie').closest('li')?.querySelector('[role="img"]')).toBeNull()
-  })
-
-  it('turns the setup card into a row once the credential reports configured', async () => {
-    const { face } = await mountFirstRun()
-    face.credentials.describe.mockImplementation((payload: { refs: string[] }) => Promise.resolve(ok({
-      credentials: Object.fromEntries(payload.refs.map(ref => [ref, { configured: true, writable: true }])),
-    })))
-    const controller = new ModelsSettingsStore(face as unknown as WireFace, settingsSchema, new SettingsDescribeMirror(face as never))
-    await controller.load()
-    cleanup()
-    render(<ModelsSection
-      controller={controller}
-      useSnapshot={bindSnapshotSelector(controller.store)}
-      api={face as never}
-      schema={settingsSchema}
-      t={t}
-    />)
-    // Now a row with an Edit button, not an open card.
-    expect(screen.getAllByText(en.edit).length).toBeGreaterThan(1)
-    expect(screen.queryByLabelText(en.keyInput)).toBeNull()
-  })
-
-  it('decides setup need from the joined credential state and the first-run posture', () => {
-    const entry = { provider: 'p', displayName: 'p', settingsNs: 'llm-deepseek', settingsPath: [], active: true }
-    const row = (credential: ProviderRow['credential']): ProviderRow => ({
-      entry,
-      configured: true,
-      removable: false,
-      apiKeyEnv: 'X',
-      credential,
-    })
-    expect(needsSetup(row(undefined), false)).toBe(true)
-    expect(needsSetup(row({ configured: true, writable: true }), false)).toBe(false)
-    const nested = { ...row(undefined), entry: { ...entry, settingsPath: ['providers', 'x'] } }
-    expect(needsSetup(nested, false)).toBe(false)
-    // A user who can already reach some provider is not in the first-run
-    // posture, so nothing on the page opens itself.
-    expect(needsSetup(row(undefined), true)).toBe(false)
   })
 
   it('derives conventional credential references from route ids', () => {
@@ -346,24 +330,29 @@ describe('ModelsSection', () => {
     expect(pathOps([], { a: 1 }, { a: 1 })).toEqual([])
   })
 
-  it('stores a typed key write-only from the setup card without touching settings', async () => {
-    const { set, update, face } = await mountFirstRun()
+  it('adds DeepSeek from the add card, recording the derived reference beside the typed key', async () => {
+    const { mutate, set } = await mountFirstRun()
+    fireEvent.click(screen.getByText(en.add))
+    const pick = await screen.findByLabelText<HTMLSelectElement>(en.provider)
+    fireEvent.change(pick, { target: { value: 'deepseek-official' } })
     const key = screen.getByLabelText<HTMLInputElement>(en.keyInput)
     fireEvent.change(key, { target: { value: '  sk-live  ' } })
     fireEvent.click(screen.getByText(en.apply))
-    await waitFor(() => { expect(set).toHaveBeenCalledWith({ ref: 'DEEPSEEK_API_KEY', value: 'sk-live' }) })
-    expect(update).not.toHaveBeenCalled()
-    // The saved key re-loads the join; the settings answer rides the shared
-    // mirror, so the reload shows as a directory read rather than a describe.
-    await waitFor(() => { expect(face.llm.providers.mock.calls.length).toBeGreaterThan(1) })
+    // The fresh route materializes with the conventional reference, so the
+    // stored key is the one request-time resolution reads.
+    await waitFor(() => { expect(mutate).toHaveBeenCalledTimes(1) })
+    expect(mutate.mock.calls[0]?.[0]).toEqual({
+      ns: 'llm-deepseek',
+      ops: [{ op: 'set', path: [...DEEPSEEK_ROUTE, 'apiKeyEnv'], value: 'DEEPSEEK_OFFICIAL_API_KEY' }],
+      expectedRevision: 0,
+    })
+    await waitFor(() => { expect(set).toHaveBeenCalledWith({ ref: 'DEEPSEEK_OFFICIAL_API_KEY', value: 'sk-live' }) })
     expect((await screen.findByRole('status')).textContent).toBe(
       providerCopy(en.savedProvider, { provider: 'deepseek-official', displayName: 'DeepSeek' }),
     )
-    fireEvent.click(screen.getByText(en.add))
-    expect(screen.queryByRole('status')).toBeNull()
   })
 
-  it('reuses the provider editor as a required credential-only onboarding form', async () => {
+  it('reuses the provider editor as a required credential-only form', async () => {
     let finishSet: ((response: RpcResponse<Record<string, never>>) => void) | undefined
     const set = vi.fn(() => new Promise<RpcResponse<Record<string, never>>>((resolve) => {
       finishSet = resolve
@@ -378,25 +367,22 @@ describe('ModelsSection', () => {
       hideTitle
       namespace={wireNamespaces()[0]!}
       schema={settingsSchema}
-      settingsPath={[]}
+      settingsPath={DEEPSEEK_ROUTE}
       api={face as never}
       t={t}
       readOnly={false}
       credentialOnly
       credentialRequired
       autoFocusCredential
-      cancelLabel="onboardingLater"
-      submitLabel="onboardingSave"
-      submitBusyLabel="onboardingSaving"
       onClose={onClose}
     />)
 
     const key = screen.getByLabelText<HTMLInputElement>(en.keyInput)
-    const save = screen.getByText<HTMLButtonElement>(en.onboardingSave)
+    const save = screen.getByText<HTMLButtonElement>(en.apply)
     expect(document.activeElement).toBe(key)
     expect(key.required).toBe(true)
     expect(save.disabled).toBe(true)
-    expect(screen.getByText(en.onboardingLater)).toBeTruthy()
+    expect(screen.getByText(en.cancel)).toBeTruthy()
     expect(screen.queryByText(en.customized)).toBeNull()
     expect(screen.queryByLabelText(en.baseUrl)).toBeNull()
 
@@ -410,7 +396,7 @@ describe('ModelsSection', () => {
     expect(save.disabled).toBe(false)
     fireEvent.click(save)
 
-    expect(await screen.findByText(en.onboardingSaving)).toBeTruthy()
+    expect(await screen.findByText(en.applying)).toBeTruthy()
     expect(set).toHaveBeenCalledWith({ ref: 'DEEPSEEK_API_KEY', value: 'sk-onboarding' })
     expect(mutate).not.toHaveBeenCalled()
     expect(onClose).not.toHaveBeenCalled()
@@ -439,7 +425,7 @@ describe('ModelsSection', () => {
     // 'high' in the loaded profile, so it produces no op.
     expect(mutate.mock.calls[0]?.[0]).toEqual({
       ns: 'llm-deepseek',
-      ops: [{ op: 'set', path: ['baseURL'], value: 'https://next2' }],
+      ops: [{ op: 'set', path: [...DEEPSEEK_ROUTE, 'baseURL'], value: 'https://next2' }],
       expectedRevision: 0,
     })
   })
@@ -468,9 +454,10 @@ describe('ModelsSection', () => {
       ns: 'llm-deepseek',
       ops: [{
         op: 'set',
-        path: ['models'],
+        path: [...DEEPSEEK_ROUTE, 'models'],
         value: [
-          ...DEFAULT_DEEPSEEK_MODELS,
+          { id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', description: '', contextWindow: 1_000_000 },
+          { id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro', description: '', contextWindow: 1_000_000 },
           { id: 'private-preview', name: 'Private Preview', contextWindow: 131_072 },
         ],
       }],
@@ -578,10 +565,10 @@ describe('ModelsSection', () => {
       ns: 'llm-deepseek',
       ops: [{
         op: 'set',
-        path: ['models'],
+        path: [...DEEPSEEK_ROUTE, 'models'],
         value: [
-          { ...DEFAULT_DEEPSEEK_MODELS[0], contextWindow: 1_000_000 },
-          { ...DEFAULT_DEEPSEEK_MODELS[1], contextWindow: 256_000 },
+          { id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', description: '', contextWindow: 1_000_000 },
+          { id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro', description: '', contextWindow: 256_000 },
         ],
       }],
       expectedRevision: 0,
@@ -618,9 +605,9 @@ describe('ModelsSection', () => {
     const overridden: SettingsNamespaceView = {
       ns: 'llm-deepseek',
       schema: JSON.parse(JSON.stringify(DeepSeekConfig.toJSON())) as unknown,
-      value: { ...stored, defaultContextWindow: 1_000_000 },
-      ...base === undefined ? {} : { base },
-      user: stored,
+      value: { providers: { 'deepseek-official': { ...stored, defaultContextWindow: 1_000_000 } } },
+      ...base === undefined ? {} : { base: { providers: { 'deepseek-official': base } } },
+      user: { providers: { 'deepseek-official': stored } },
       applies: 'live',
       secrets: [],
       revision: 0,
@@ -631,7 +618,7 @@ describe('ModelsSection', () => {
       displayName="DeepSeek"
       namespace={overridden}
       schema={settingsSchema}
-      settingsPath={[]}
+      settingsPath={DEEPSEEK_ROUTE}
       api={face as never}
       t={t}
       readOnly={false}
@@ -750,8 +737,14 @@ describe('ModelsSection', () => {
       ns: 'llm-deepseek',
       ops: [{
         op: 'set',
-        path: ['models'],
-        value: [{ ...DEFAULT_DEEPSEEK_MODELS[1], maxTokens: 64_000 }],
+        path: [...DEEPSEEK_ROUTE, 'models'],
+        value: [{
+          id: 'deepseek-v4-pro',
+          name: 'DeepSeek-V4-Pro',
+          description: '',
+          contextWindow: 1_000_000,
+          maxTokens: 64_000,
+        }],
       }],
       expectedRevision: 0,
     })
@@ -817,10 +810,10 @@ describe('ModelsSection', () => {
       ns: 'llm-deepseek',
       ops: [{
         op: 'set',
-        path: ['models'],
+        path: [...DEEPSEEK_ROUTE, 'models'],
         value: [
-          { id: 'deepseek-v4-flash', description: 'Preserved hidden detail' },
-          DEFAULT_DEEPSEEK_MODELS[1],
+          { id: 'deepseek-v4-flash', description: '' },
+          { id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro', description: '', contextWindow: 1_000_000 },
         ],
       }],
       expectedRevision: 0,
@@ -840,7 +833,7 @@ describe('ModelsSection', () => {
     expect(update).not.toHaveBeenCalled()
     expect(mutate.mock.calls[0]?.[0]).toEqual({
       ns: 'llm-deepseek',
-      ops: [{ op: 'unset', path: ['baseURL'] }],
+      ops: [{ op: 'unset', path: [...DEEPSEEK_ROUTE, 'baseURL'] }],
       expectedRevision: 0,
     })
   })
@@ -861,7 +854,7 @@ describe('ModelsSection', () => {
       displayName="DeepSeek"
       namespace={bare}
       schema={settingsSchema}
-      settingsPath={[]}
+      settingsPath={DEEPSEEK_ROUTE}
       api={face as never}
       t={t}
       readOnly={false}
@@ -876,13 +869,20 @@ describe('ModelsSection', () => {
     expect(baseURL.value).toBe('')
   })
 
-  it('rejects an invalid draft before writing', async () => {
-    const { update } = await mountDeepSeekCard()
+  it('surfaces the host refusal of a profile field the page does not pre-validate', async () => {
+    // Nested route profiles are validated where they are written, like every
+    // pi-ai route: the card shows the host's rejection instead of predicting it.
+    const { mutate } = await mountDeepSeekCard({
+      mutate: vi.fn(() => Promise.resolve(fail(
+        'llm-deepseek.providers.deepseek-official.baseURL must match https://…',
+        'settings-rejected',
+      ))),
+    })
     fireEvent.click(screen.getByText(en.customized))
     fireEvent.change(screen.getByLabelText(en.baseUrl), { target: { value: 'not-a-url' } })
     fireEvent.click(screen.getByText(en.apply))
-    await screen.findByText(/baseURL/)
-    expect(update).not.toHaveBeenCalled()
+    await screen.findByText(/must match/)
+    expect(mutate).toHaveBeenCalledTimes(1)
   })
 
   it('edits a pi-ai profile with the curated fields only', async () => {
@@ -1032,6 +1032,7 @@ describe('ModelsSection', () => {
         schema={settingsSchema}
         t={t}
       />)
+      fireEvent.click(screen.getByRole('button', { name: deepSeekCopy(en.editProvider) }))
       const key = await screen.findByLabelText<HTMLInputElement>(en.keyInput)
       expect(key.placeholder).toBe(en.keyPlaceholder)
       await new Promise(resolve => setTimeout(resolve, 10))
@@ -1068,7 +1069,7 @@ describe('ModelsSection', () => {
   })
 
   it('surfaces a shadowed credential write on the card', async () => {
-    await mountFirstRun({
+    await mountDeepSeekCard({
       set: vi.fn(() => Promise.resolve(fail('credentials: DEEPSEEK_API_KEY is shadowed by the read-only environment', 'credential-rejected'))),
     })
     const key = screen.getByLabelText<HTMLInputElement>(en.keyInput)
@@ -1218,29 +1219,6 @@ describe('ModelsSection', () => {
     await screen.findByLabelText(en.provider)
     fireEvent.click(screen.getByText(en.cancel))
     await screen.findByText(en.add)
-    expect(screen.queryByLabelText(en.provider)).toBeNull()
-  })
-
-  it('collapses the setup card on cancel without disturbing another open card', async () => {
-    // The regression: the setup card shared the row/add/declare close handler,
-    // so cancelling it discarded the add card's draft while staying open itself.
-    await mountFirstRun()
-    expect(screen.getAllByLabelText(en.keyInput)).toHaveLength(1)
-    fireEvent.click(screen.getByText(en.add))
-    await screen.findByLabelText(en.provider)
-    expect(screen.getAllByLabelText(en.keyInput)).toHaveLength(2)
-
-    // The setup card is the first one on the page, above the add block.
-    fireEvent.click(screen.getAllByText(en.cancel)[0] as HTMLElement)
-    // The add card kept its draft…
-    expect(screen.getByLabelText(en.provider)).toBeTruthy()
-    // …and DeepSeek collapsed to an ordinary row carrying the missing-key dot.
-    expect(screen.getAllByLabelText(en.keyInput)).toHaveLength(1)
-    expect(screen.getAllByRole('img', { name: en.credentialMissing })
-      .some(dot => dot.closest('li')?.textContent?.includes('DeepSeek') === true)).toBe(true)
-    // Its card reopens through Edit, which closes the add card as any row does.
-    fireEvent.click(screen.getByRole('button', { name: deepSeekCopy(en.editProvider) }))
-    expect(screen.getAllByLabelText(en.keyInput)).toHaveLength(1)
     expect(screen.queryByLabelText(en.provider)).toBeNull()
   })
 
