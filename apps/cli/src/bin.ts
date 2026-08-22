@@ -42,6 +42,11 @@ switch (invocation.mode) {
     process.exit(runPlugin(invocation.profile, invocation.args))
     break
   }
+  case 'desktop': {
+    const { runDesktop } = await import('./desktop-launch.ts')
+    process.exit(await runDesktop(invocation.args))
+    break
+  }
   case 'dump-config': {
     const { runDumpConfig } = await import('./dump-config.ts')
     runDumpConfig(invocation.profile, invocation.defaultOnly, invocation.patches)

@@ -45,6 +45,14 @@ describe('parseDshArgs', () => {
       .toEqual({ mode: 'profile', profile: 'tui', patches: ['a.yml'], args: ['--resume', 'b', '--patch', 'late.yml'] })
   })
 
+  it('routes the desktop launcher, forwarding Electron arguments verbatim', () => {
+    expect(parse(['desktop'])).toEqual({ mode: 'desktop', args: [] })
+    expect(parse(['desktop', '--proxy-server=socks5://127.0.0.1:1080']))
+      .toEqual({ mode: 'desktop', args: ['--proxy-server=socks5://127.0.0.1:1080'] })
+    expect(parse(['desktop', '--remote-debugging-port', '9222', 'extra']))
+      .toEqual({ mode: 'desktop', args: ['--remote-debugging-port', '9222', 'extra'] })
+  })
+
   it('routes the plugin pnpm forwarder', () => {
     expect(parse(['plugin', '--profile', 'tui', 'add', 'turtle-ui']))
       .toEqual({ mode: 'plugin', profile: 'tui', args: ['add', 'turtle-ui'] })
@@ -96,11 +104,15 @@ describe('parseDshArgs', () => {
     expect(exitCode(['plugin', '--profile', 'tui'])).toBe(1) // nothing to forward
     expect(exitCode(['plugin', '--profile', ''])).toBe(1)
     expect(exitCode(['--profile', 'x', 'plugin', 'add', 'y'])).toBe(1)
+    expect(exitCode(['--profile', 'x', 'desktop'])).toBe(1)
   })
 
   it('keeps its own help for an invocation with no app to hand it to', () => {
     expect(exitCode(['--help'])).toBe(0)
     expect(exitCode(['-h'])).toBe(0)
     expect(exitCode(['--version'])).toBe(0)
+    // Electron owns no useful -h, so the desktop command prints its own.
+    expect(exitCode(['desktop', '--help'])).toBe(0)
+    expect(exitCode(['desktop', '-h'])).toBe(0)
   })
 })

@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-本参考定义 profile 启动、web 别名、插件管理和配置 dump 等命令模式。argv 由 [`src/args.ts`](../src/args.ts) 统一解析一次，[`src/bin.ts`](../src/bin.ts) 只会动态导入选中的运行器。
+本参考定义 profile 启动、web 别名、Desktop 命令、插件管理和配置 dump 等命令模式。argv 由 [`src/args.ts`](../src/args.ts) 统一解析一次，[`src/bin.ts`](../src/bin.ts) 只会动态导入选中的运行器。
 
 ## Profile 启动
 
@@ -77,6 +77,11 @@ dsh web --help
 生产 Web 运行器需要已构建的包和前端产物（`pnpm run build`）。默认服务地址是 `http://127.0.0.1:3080`；本机启动时，只在完整 Loader 配置树结算后才用默认浏览器打开该规范宿主机 URL。继承的 `SSH_CONNECTION` 或 `SSH_TTY` 非空时会跳过浏览器交接，因为本地转发地址由 SSH 客户端或编辑器持有；宿主机 URL 仍会打印。CLI 目前有意不支持 `--host 0.0.0.0`，并会以用法错误退出。本机交接前会打印英文提示 `dsh web: opening the default browser; pass --no-open to disable`；若操作系统交接失败，stderr 诊断会说明原因、给出 URL 供手动访问，服务器仍继续运行。`--trusted-host` 可添加 `/api` 浏览器信任围栏接受的具名 authority。
 
 进程关闭时，插件树最多有 5 秒完成 dispose。首次收到 `SIGINT` 或 `SIGTERM` 时会开始优雅排空：`SIGTERM` 是监督进程发出的常规停止请求，在所有运行模式下都以 0 退出；`SIGINT` 则报告 130。第二次收到信号时会立即强制退出。如果一次性运行在正常结束时已经卡在 dispose 阶段，第一次按下 `Ctrl+C` 就会直接升级为强制退出，而不会被忽略。
+
+<a id="desktop-command"></a>
+
+## Desktop 命令
+`dsh desktop` 启动 [`apps/desktop`](../../../apps/desktop/README.zh.md) 中的 Electron 容器应用，而不是启动某个 profile：它会校验同级检出目录已完成构建，通过该应用的依赖图解析 Electron 二进制，然后以应用目录加上原样转发的其余参数启动它（Electron 与 Chromium 开关直接透传）。Electron 自身没有有用的 `-h`，因此与 web 别名不同，`-h`/`--help` 会打印本命令的用法并以 0 退出。容器应用随后自行在内网回环端口上启动构建好的 `dsh web` 后端，因此该模式需要构建产物（`pnpm run build`），但不需要 profile 目录。检出缺失、未构建或未执行 `pnpm install` 时都会失败，并给出指明修复方式的诊断；子进程的退出码就是本次调用的退出码。
 
 所有模式都将运行命令时所在的目录作为默认 workspace 根目录，以 65,536 字节渲染预算加载适用的 `AGENTS.md` 或 `CLAUDE.md` 指令，并使用内存 SQLite 会话内容索引。每次启动 profile 时，系统都会监视 profile 与 home 两个 `cordis.patch.yml` 配置层的有效变更，并以事务方式重新应用；一次性运行模式通过有界关闭流程退出，该流程会先 dispose 监视器。
 

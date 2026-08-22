@@ -10,6 +10,12 @@ Production runs require built artifacts. From the repository root:
 
 ```sh
 pnpm run build
+pnpm dsh desktop
+```
+
+`dsh desktop` verifies this app's checkout and build, resolves the Electron binary through this app's dependency graph, and launches it with every remaining argument forwarded verbatim ([CLI reference](../cli/reference/README.md#desktop-command)). The direct form stays available:
+
+```sh
 pnpm --filter @deepseek-ai/dsh-desktop exec electron .
 ```
 

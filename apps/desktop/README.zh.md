@@ -10,6 +10,12 @@
 
 ```sh
 pnpm run build
+pnpm dsh desktop
+```
+
+`dsh desktop` 会校验本应用的检出与构建，通过本应用的依赖图解析 Electron 二进制，并以原样转发其余参数的方式启动它（见 [CLI 参考](../cli/reference/README.zh.md#desktop-command)）。直接形式仍然可用：
+
+```sh
 pnpm --filter @deepseek-ai/dsh-desktop exec electron .
 ```
 

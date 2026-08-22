@@ -10,7 +10,8 @@
  * `dsh --profile tui --resume abc` boots the tui profile with `--resume abc`,
  * and `dsh --profile web -h` prints the web app's help, not this one's.
  *
- * `web` is a hardcoded alias for `--profile web`; `plugin` manages a profile's
+ * `web` is a hardcoded alias for `--profile web`; `desktop` launches the
+ * Electron container app around the web surface; `plugin` manages a profile's
  * plugin dependencies by forwarding to pnpm.
  * @module @deepseek-ai/dsh/args
  */
@@ -44,8 +45,15 @@ interface PluginInvocation {
   args: string[]
 }
 
+/** Launch the Electron desktop container; `args` forwards verbatim to Electron. */
+interface DesktopInvocation {
+  mode: 'desktop'
+  /** Raw Electron arguments, verbatim. */
+  args: string[]
+}
+
 /** The resolved `dsh` invocation. Help, version, and errors exit inside {@link parseDshArgs}. */
-export type DshInvocation = ProfileInvocation | DumpConfigInvocation | PluginInvocation
+export type DshInvocation = ProfileInvocation | DumpConfigInvocation | PluginInvocation | DesktopInvocation
 
 /** Launcher flags shared by the default command and the `web` alias. */
 interface BootOptions {
@@ -68,6 +76,7 @@ Examples:
   dsh --profile tui --patch ./extra.yml      boot a custom profile with one extra overlay
   dsh --profile tui --resume <session>       arguments after the launcher flags reach the app
   dsh --profile web --help                   the web app's own flags and help
+  dsh desktop                                open the Web GUI in the Electron desktop container
   dsh plugin --profile tui add <package>     install a plugin into the tui profile
 `
 
@@ -178,6 +187,18 @@ export function parseDshArgs(argv: readonly string[], version: string): DshInvoc
       if (options.profile === '') program.error('error: --profile needs a name')
       if (args.length === 0) program.error('error: plugin needs pnpm arguments to forward (e.g. add <package>)')
       resolved = { mode: 'plugin', profile: options.profile, args }
+    })
+
+  const desktop = program.command('desktop').description('open the Web GUI in the Electron desktop container (apps/desktop); the remaining arguments forward to Electron')
+  desktop
+    .allowUnknownOption()
+    .argument('[args...]', 'arguments forwarded verbatim to the Electron binary')
+    .action((args: string[]) => {
+      rejectParentOptions('desktop')
+      // Electron owns no useful -h, so the launcher keeps this invocation's
+      // own help instead of forwarding it (the root's bare-`-h` pattern).
+      if (args.some(argument => argument === '-h' || argument === '--help')) desktop.help()
+      resolved = { mode: 'desktop', args }
     })
 
   try {
